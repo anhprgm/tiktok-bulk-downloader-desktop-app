@@ -6,7 +6,9 @@ import {
   Chip,
   Progress,
   Tooltip,
-  Pagination
+  Pagination,
+  Checkbox,
+  cn
 } from '@heroui/react'
 import {
   SortingState,
@@ -21,7 +23,16 @@ import {
 } from '@tanstack/react-table'
 import { useState, useMemo, useRef } from 'react'
 import { IAwemeItem, IUserInfo } from '@shared/types/tiktok.type'
-import { Search, Download, FolderOpen, StopCircle, ExternalLink } from 'lucide-react'
+import {
+  Search,
+  Download,
+  FolderOpen,
+  StopCircle,
+  ExternalLink,
+  ArrowUp,
+  ArrowDown,
+  ArrowDownUp
+} from 'lucide-react'
 
 const columnHelper = createColumnHelper<IAwemeItem>()
 
@@ -67,6 +78,7 @@ const BulkDownloader = () => {
         header: 'ID',
         // Enable column filtering
         filterFn: customFilterFn,
+        enableSorting: false,
         cell: (info) => <span className="text-small font-bold">{info.getValue()}</span>
       }),
       columnHelper.accessor('type', {
@@ -74,6 +86,7 @@ const BulkDownloader = () => {
         filterFn: (row, id, value) => {
           return !value || value === 'ALL' || row.getValue(id) === value
         },
+        enableSorting: false,
         cell: (info) => (
           <Chip
             size="sm"
@@ -86,6 +99,7 @@ const BulkDownloader = () => {
       }),
       columnHelper.accessor('url', {
         header: 'Url',
+        enableSorting: false,
         cell: (info) => (
           <a
             href={info.getValue()}
@@ -100,6 +114,7 @@ const BulkDownloader = () => {
       columnHelper.accessor('description', {
         header: 'Description',
         filterFn: customFilterFn,
+        enableSorting: false,
         cell: (info) => (
           <Tooltip content={info.getValue()} delay={1000}>
             <div className="w-40 truncate text-tiny cursor-default">{info.getValue()}</div>
@@ -388,28 +403,47 @@ const BulkDownloader = () => {
 
           {/* Download Configuration */}
           <div className="flex gap-2 items-center">
-            <Input
-              placeholder="Save to..."
-              value={folderPath}
-              readOnly
-              size="sm"
-              className="w-40"
-              endContent={
-                <FolderOpen
-                  size={16}
-                  className="cursor-pointer hover:text-primary"
-                  onClick={handleSelectFolder}
-                />
-              }
-            />
+            <Tooltip delay={0} content={folderPath} placement="top" isDisabled={!folderPath}>
+              <Input
+                placeholder="Save to..."
+                value={folderPath}
+                readOnly
+                size="sm"
+                className="w-40"
+                classNames={{
+                  input: 'truncate'
+                }}
+                endContent={
+                  <FolderOpen
+                    size={16}
+                    className="cursor-pointer hover:text-primary"
+                    onClick={handleSelectFolder}
+                  />
+                }
+              />
+            </Tooltip>
 
             <Select
               placeholder="Filename Format"
               selectionMode="multiple"
               selectedKeys={fileNameFormat}
               onSelectionChange={(keys) => setFileNameFormat(keys as Set<string>)}
-              className="w-48"
+              className="w-96"
               size="sm"
+              renderValue={(items) => (
+                <div className="flex flex-wrap items-center gap-1">
+                  {items.map((item, index) => (
+                    <div key={item.key} className="flex items-center gap-1">
+                      <Chip size="sm" variant="flat" color="success">
+                        {item.textValue}
+                      </Chip>
+
+                      {/* separator "_" (không render cho item cuối) */}
+                      {index < items.length - 1 && <span className="text-default-400">_</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
             >
               <SelectItem key="Numerical order">Numerical Order</SelectItem>
               <SelectItem key="ID">ID</SelectItem>
@@ -453,25 +487,34 @@ const BulkDownloader = () => {
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
                   <th className="p-3 w-10 bg-default-100">
-                    <input
-                      type="checkbox"
-                      checked={table.getIsAllRowsSelected()}
+                    <Checkbox
+                      disabled={downloading}
+                      size="sm"
+                      isIndeterminate={table.getIsSomeRowsSelected()}
+                      isSelected={table.getIsAllRowsSelected()}
                       onChange={table.getToggleAllRowsSelectedHandler()}
-                      className="rounded border-default-400 w-4 h-4 cursor-pointer accent-primary"
+                      classNames={{
+                        wrapper: 'before:border-default-400'
+                      }}
                     />
                   </th>
                   {headerGroup.headers.map((header) => (
                     <th
                       key={header.id}
-                      className="p-3 font-semibold text-default-600 cursor-pointer hover:text-primary transition-colors bg-default-100 whitespace-nowrap"
+                      className={cn(
+                        'p-3 font-semibold text-default-600 transition-colors bg-default-100 whitespace-nowrap',
+                        header.column.getCanSort()
+                          ? 'cursor-pointer hover:text-primary'
+                          : 'cursor-default'
+                      )}
                       onClick={header.column.getToggleSortingHandler()}
                     >
                       <div className="flex items-center gap-1">
                         {flexRender(header.column.columnDef.header, header.getContext())}
-                        {{
-                          asc: ' 🔼',
-                          desc: ' 🔽'
-                        }[header.column.getIsSorted() as string] ?? null}
+                        {header.column.getCanSort() &&
+                          ({ asc: <ArrowUp size={15} />, desc: <ArrowDown size={15} /> }[
+                            header.column.getIsSorted() as string
+                          ] ?? <ArrowDownUp size={15} />)}
                       </div>
                     </th>
                   ))}
@@ -481,13 +524,24 @@ const BulkDownloader = () => {
             <tbody className="divide-y divide-divider">
               {table.getRowModel().rows.length > 0 ? (
                 table.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="hover:bg-default-100 transition-colors group">
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      'transition-colors group',
+                      row.getIsSelected()
+                        ? 'bg-primary-50 dark:bg-primary-100/60'
+                        : 'hover:bg-default-100'
+                    )}
+                  >
                     <td className="p-3">
-                      <input
-                        type="checkbox"
-                        checked={row.getIsSelected()}
+                      <Checkbox
+                        disabled={downloading}
+                        size="sm"
+                        isSelected={row.getIsSelected()}
                         onChange={row.getToggleSelectedHandler()}
-                        className="rounded border-default-400 w-4 h-4 cursor-pointer accent-primary"
+                        classNames={{
+                          wrapper: 'before:border-default-400'
+                        }}
                       />
                     </td>
                     {row.getVisibleCells().map((cell) => (

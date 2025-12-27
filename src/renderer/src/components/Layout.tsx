@@ -16,7 +16,7 @@ const Layout = ({ children }: LayoutProps) => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground bg-linear-to-br from-background to-default-100 dark:from-background dark:to-content1 transition-colors duration-500">
+    <div className="h-screen overflow-hidden flex flex-col bg-background text-foreground">
       <header className="sticky top-0 z-50 w-full border-b border-divider bg-background/60 backdrop-blur-md px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="app-drag w-full h-full absolute top-0 left-0 z-0 pointer-events-none" />
