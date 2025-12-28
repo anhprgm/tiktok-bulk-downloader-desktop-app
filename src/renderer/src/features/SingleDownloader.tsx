@@ -33,18 +33,23 @@ const SingleDownloader = () => {
   }
 
   const sanitizeFilename = (name: string) => {
-    return name ? name.replace(/[^a-z0-9]/gi, '_').substring(0, 50) : 'no_desc'
+    return name
+      ? name
+          .replace(/[<>:"/\\|?*]+/g, '')
+          .trim()
+          .substring(0, 100)
+      : 'no_desc'
   }
 
-  const getFilename = (item: IAwemeItem, index: number, ext: string) => {
-    const date = new Date(item.createdAt * 1000).toISOString().split('T')[0]
+  const getFilename = (item: IAwemeItem, _index: number, ext: string) => {
     const formatKeys = Array.from(fileNameFormat)
     const parts: string[] = []
 
-    if (formatKeys.includes('Numerical order')) parts.push(`${index + 1}`) // Often irrelevant for single, but allowed
-    if (formatKeys.includes('ID')) parts.push(item.id)
-    if (formatKeys.includes('Timestamp')) parts.push(date)
-    if (formatKeys.includes('Description')) parts.push(sanitizeFilename(item.description))
+    formatKeys.forEach((key) => {
+      if (key === 'ID') parts.push(item.id)
+      if (key === 'Timestamp') parts.push(item.createdAt.toString())
+      if (key === 'Description') parts.push(sanitizeFilename(item.description))
+    })
 
     return parts.length > 0 ? `${parts.join('_')}.${ext}` : `${item.id}.${ext}`
   }
@@ -107,7 +112,7 @@ const SingleDownloader = () => {
     <div className="flex flex-col gap-6 max-w-2xl mx-auto mt-10 p-6 bg-content1 rounded-xl shadow-lg border border-divider">
       <div className="space-y-6">
         <div>
-          <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">
+          <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-linear-to-r from-primary to-secondary">
             Single Video Download
           </h2>
           <p className="text-default-500">Enter a video ID to download immediately.</p>
@@ -162,7 +167,6 @@ const SingleDownloader = () => {
               </div>
             )}
           >
-            <SelectItem key="Numerical order">Numerical Order</SelectItem>
             <SelectItem key="ID">ID</SelectItem>
             <SelectItem key="Description">Description</SelectItem>
             <SelectItem key="Timestamp">Timestamp</SelectItem>

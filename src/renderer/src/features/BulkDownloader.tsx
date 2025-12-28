@@ -39,6 +39,7 @@ const columnHelper = createColumnHelper<IAwemeItem>()
 const BulkDownloader = () => {
   const [username, setUsername] = useState('')
   const [delay, setDelay] = useState('0')
+  const [batchSize, setBatchSize] = useState('10')
   const [loading, setLoading] = useState(false)
   const [userInfo, setUserInfo] = useState<IUserInfo | null>(null)
   const [posts, setPosts] = useState<IAwemeItem[]>([])
@@ -249,19 +250,26 @@ const BulkDownloader = () => {
 
   // Download Logic
   const sanitizeFilename = (name: string) => {
-    return name ? name.replace(/[^a-z0-9]/gi, '_').substring(0, 50) : 'no_desc'
+    // Allow Vietnamese characters and other unicode, just strip illegal Windows chars < > : " / \ | ? *
+    return name
+      ? name
+          .replace(/[<>:"/\\|?*]+/g, '')
+          .trim()
+          .substring(0, 100)
+      : 'no_desc'
   }
 
   const getFilename = (item: IAwemeItem, index: number, ext: string) => {
-    const date = new Date(item.createdAt * 1000).toISOString().split('T')[0]
     const formatKeys = Array.from(fileNameFormat)
 
     const parts: string[] = []
 
-    if (formatKeys.includes('Numerical order')) parts.push(`${index + 1}`)
-    if (formatKeys.includes('ID')) parts.push(item.id)
-    if (formatKeys.includes('Timestamp')) parts.push(date)
-    if (formatKeys.includes('Description')) parts.push(sanitizeFilename(item.description))
+    formatKeys.forEach((key) => {
+      if (key === 'Numerical order') parts.push(`${index + 1}`)
+      if (key === 'ID') parts.push(item.id)
+      if (key === 'Timestamp') parts.push(item.createdAt.toString())
+      if (key === 'Description') parts.push(sanitizeFilename(item.description))
+    })
 
     return parts.length > 0 ? `${parts.join('_')}.${ext}` : `${item.id}.${ext}`
   }
@@ -301,41 +309,48 @@ const BulkDownloader = () => {
     // Or just append `/${safeUsername}`.
     const userFolderPath = `${currentFolderPath}/${safeUsername}`
 
-    // Note: The loop index 'i' here represents the "Numerical Order" because we are iterating selected rows in their sorted order.
-    for (let i = 0; i < selectedRows.length; i++) {
+    // Batch processing
+    const batchSizeNum = parseInt(batchSize) || 1
+
+    for (let i = 0; i < selectedRows.length; i += batchSizeNum) {
       if (isCancelDownloadRef.current) break
 
-      const row = selectedRows[i]
-      const item = row.original
-      const indexForName = i
-      const delayMs = parseInt(delay) || 0
+      const batch = selectedRows.slice(i, i + batchSizeNum)
 
-      try {
-        if (item.type === 'VIDEO' && item.video) {
-          await window.api.downloadFile({
-            url: item.video.mp4Uri,
-            fileName: getFilename(item, indexForName, 'mp4'),
-            folderPath: userFolderPath
-          })
-        } else if (item.type === 'PHOTO' && item.imagesUri) {
-          // For photos: Create a subfolder with the calculated filename (minus extension)
-          const baseName = getFilename(item, indexForName, 'jpg').replace('.jpg', '')
-          const photoFolderPath = `${userFolderPath}/${baseName}`
+      const downloadPromises = batch.map(async (row, batchIndex) => {
+        const item = row.original
+        const globalIndex = i + batchIndex
 
-          for (let j = 0; j < item.imagesUri.length; j++) {
+        try {
+          if (item.type === 'VIDEO' && item.video) {
             await window.api.downloadFile({
-              url: item.imagesUri[j],
-              fileName: `${j + 1}.jpg`,
-              folderPath: photoFolderPath
+              url: item.video.mp4Uri,
+              fileName: getFilename(item, globalIndex, 'mp4'),
+              folderPath: userFolderPath
             })
-          }
-        }
-      } catch (e) {
-        console.error(`Failed to download ${item.id}`, e)
-      }
+          } else if (item.type === 'PHOTO' && item.imagesUri) {
+            const baseName = getFilename(item, globalIndex, 'jpg').replace('.jpg', '')
+            const photoFolderPath = `${userFolderPath}/${baseName}`
 
-      setDownloadProgress((prev) => ({ ...prev, current: prev.current + 1 }))
-      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
+            // Download photos for a single post concurrently
+            await Promise.all(
+              item.imagesUri.map((imgUrl, j) =>
+                window.api.downloadFile({
+                  url: imgUrl,
+                  fileName: `${j + 1}.jpg`,
+                  folderPath: photoFolderPath
+                })
+              )
+            )
+          }
+        } catch (e) {
+          console.error(`Failed to download ${item.id}`, e)
+        } finally {
+          setDownloadProgress((prev) => ({ ...prev, current: prev.current + 1 }))
+        }
+      })
+
+      await Promise.all(downloadPromises)
     }
 
     setDownloading(false)
@@ -360,14 +375,26 @@ const BulkDownloader = () => {
           isDisabled={loading}
         />
         <Input
-          label="Delay (ms)"
+          label="Delay between fetching posts (ms)"
           value={delay}
           onValueChange={setDelay}
-          className="w-24"
+          className="grow w-fit"
           type="number"
           variant="bordered"
           size="sm"
           isDisabled={loading}
+          placeholder="0"
+        />
+        <Input
+          label="Batch size per download"
+          value={batchSize}
+          onValueChange={setBatchSize}
+          className="grow w-fit"
+          type="number"
+          variant="bordered"
+          size="sm"
+          isDisabled={loading}
+          placeholder="10"
         />
         <Button
           color={loading ? 'danger' : 'primary'}
@@ -376,7 +403,7 @@ const BulkDownloader = () => {
         >
           {loading ? 'Stop Fetching' : 'Get Data'}
         </Button>
-        <div className="ml-auto text-small text-default-500">
+        <div className="ml-auto text-small text-default-500 flex items-center h-full">
           {userInfo && (
             <div className="flex gap-4">
               <span>
