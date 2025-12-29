@@ -4,10 +4,8 @@
 
 ### Set up environment variables (optional)
 
-```
 > [!NOTE]
 > Because some accounts may require login to view their videos, you will need to provide your account's cookie (sid_tt is sufficient) for it to function properly. The image below is an example of an account requiring login to view their videos.
-```
 
 ![1767025248014](image/README/1767025248014.png)
 
