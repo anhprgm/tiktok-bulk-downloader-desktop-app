@@ -28,16 +28,15 @@ import {
   FilterFn,
   RowSelectionState
 } from '@tanstack/react-table'
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
+import { useState, useMemo, useRef, useCallback } from 'react'
 import { IAwemeItem, IUserInfo } from '@shared/types/tiktok.type'
-import { Search, Download, FolderOpen, StopCircle, ExternalLink, Save } from 'lucide-react'
-import { showErrorToast, showSuccessToast } from '@renderer/lib/toast'
+import { Search, Download, FolderOpen, StopCircle, ExternalLink } from 'lucide-react'
+import { showErrorToast } from '@renderer/lib/toast'
 
 const columnHelper = createColumnHelper<IAwemeItem>()
 
 const BulkDownloader = () => {
   const [username, setUsername] = useState('')
-  const [sidTt, setSidTt] = useState('')
   const [delay, setDelay] = useState('0')
   const [batchSize, setBatchSize] = useState('15')
   const [loading, setLoading] = useState(false)
@@ -65,18 +64,6 @@ const BulkDownloader = () => {
   )
   const [downloading, setDownloading] = useState(false)
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 })
-
-  // Load sid_tt from settings
-  useEffect(() => {
-    window.api.getSettings('sid_tt').then(({ data: savedSid }) => {
-      if (savedSid) setSidTt(savedSid)
-    })
-  }, [])
-
-  const handleSaveSidTt = async () => {
-    await window.api.saveSettings('sid_tt', sidTt)
-    showSuccessToast('sid_tt saved successfully!')
-  }
 
   // Custom Filter Function
   const customFilterFn: FilterFn<IAwemeItem> = (row, columnId, filterValue) => {
@@ -263,8 +250,8 @@ const BulkDownloader = () => {
 
   // Fetch Logic
   const handleFetchData = async () => {
-    if (!username || !sidTt) {
-      showErrorToast('Please provide both username and sid_tt')
+    if (!username) {
+      showErrorToast('Please provide a username')
       return
     }
 
@@ -283,12 +270,20 @@ const BulkDownloader = () => {
     setPageIndex(0)
 
     try {
+      const { data: credentials, success: isGetCredentialsSuccess } =
+        await window.api.getTiktokCredentials()
+      if (!isGetCredentialsSuccess) {
+        showErrorToast('Failed to fetch TikTok credentials')
+        setLoading(false)
+        return
+      }
+
       const {
         data: user,
         success,
         error
       } = await window.api.getUserInfo(username, {
-        cookie: `sid_tt=${sidTt}`
+        cookie: credentials.cookie
       })
 
       if (!success || !user) {
@@ -306,7 +301,7 @@ const BulkDownloader = () => {
         const { success, data: res } = await window.api.getUserAwemeList(user.secUid, {
           cursor: currentCursor,
           maxCursor: currentMaxCursor,
-          cookie: `sid_tt=${sidTt}`
+          cookie: credentials.cookie
         })
 
         if (!success || !res) {
@@ -655,23 +650,6 @@ const BulkDownloader = () => {
             size="sm"
             isDisabled={loading}
           />
-          <Input
-            label="sid_tt"
-            value={sidTt}
-            onValueChange={setSidTt}
-            className="max-w-md"
-            variant="bordered"
-            size="sm"
-            isDisabled={loading}
-            placeholder="Required"
-            endContent={
-              <Tooltip content="Save sid_tt for future use">
-                <Button isIconOnly size="sm" variant="flat" onPress={handleSaveSidTt}>
-                  <Save size={16} />
-                </Button>
-              </Tooltip>
-            }
-          />
 
           <Input
             label="Delay between requests (seconds)"
@@ -693,13 +671,6 @@ const BulkDownloader = () => {
           >
             {loading ? 'Stop' : 'Get Data'}
           </Button>
-        </div>
-
-        <div className="flex gap-2 items-center text-tiny text-warning bg-warning-50 p-2 rounded-md border border-warning-200 dark:bg-warning-900/20 dark:border-warning-500/80">
-          <span>
-            ⚠️ How to get `sid_tt`: Login TikTok → F12 → Application → Cookies → Find `sid_tt` and
-            copy its value.
-          </span>
         </div>
       </div>
 

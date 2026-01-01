@@ -6,7 +6,12 @@ import {
   IpcGetAwemeListOptions,
   IpcResponse
 } from '@shared/types/ipc.type'
-import { IAwemeItem, IAwemeListResponse, IUserInfo } from '@shared/types/tiktok.type'
+import {
+  IAwemeItem,
+  IAwemeListResponse,
+  ITiktokCredentials,
+  IUserInfo
+} from '@shared/types/tiktok.type'
 import { ipcMain, dialog, app, BrowserWindow } from 'electron'
 import fs from 'fs'
 import path from 'path'
@@ -52,7 +57,7 @@ const setupIpcHandlers = ({ mainWindow }: ISetupIpcHandlersOptions) => {
       options: IpcGetAwemeDetailsOptions
     ): Promise<IpcResponse<IUserInfo>> => {
       try {
-        const userInfo = await TiktokService.getUserInfo(username, options)
+        const userInfo = await TiktokService.getUserInfoByUsername(username, options)
         return {
           success: true,
           data: userInfo
@@ -78,6 +83,24 @@ const setupIpcHandlers = ({ mainWindow }: ISetupIpcHandlersOptions) => {
         return {
           success: true,
           data: awemeDetails
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: (error as Error).message
+        }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.GET_TIKTOK_CREDENTIALS,
+    async (): Promise<IpcResponse<ITiktokCredentials>> => {
+      try {
+        const credentials = await TiktokService.getCredentials()
+        return {
+          success: true,
+          data: credentials
         }
       } catch (error) {
         return {

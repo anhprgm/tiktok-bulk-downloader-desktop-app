@@ -2,6 +2,7 @@ import {
   IAwemeItem,
   IAwemeListResponse,
   IGetAwemeListCursor,
+  ITiktokCredentials,
   IUserInfo
 } from '@shared/types/tiktok.type'
 
@@ -44,6 +45,7 @@ export interface IpcApi {
     awemeId: string,
     options: IpcGetAwemeDetailsOptions
   ) => Promise<IpcResponse<IAwemeItem>>
+  getTiktokCredentials: () => Promise<IpcResponse<ITiktokCredentials>>
   selectFolder: () => Promise<IpcResponse<string | null>>
   downloadFile: (options: IDownloadFileOptions) => Promise<IpcResponse<boolean>>
   getDefaultDownloadPath: () => Promise<IpcResponse<string>>

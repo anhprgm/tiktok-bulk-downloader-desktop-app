@@ -50,8 +50,29 @@ const formatAwemeItemResponse = (item: any): IAwemeItem => {
   }
 }
 
+export const findValueByKey = (obj: Record<string, any>, targetKey: string): any | undefined => {
+  for (const key in obj) {
+    if (!Object.prototype.hasOwnProperty.call(obj, key)) continue
+
+    if (key === targetKey) {
+      return obj[key] // Tìm thấy thì trả về giá trị
+    }
+
+    // Nếu là object lồng nhau thì đệ quy
+    if (typeof obj[key] === 'object' && obj[key] !== null) {
+      const result = findValueByKey(obj[key], targetKey)
+      if (result !== undefined) {
+        return result
+      }
+    }
+  }
+
+  return undefined // Không tìm thấy
+}
+
 const tiktokUtils = {
-  formatAwemeItemResponse
+  formatAwemeItemResponse,
+  findValueByKey
 }
 
 export default tiktokUtils

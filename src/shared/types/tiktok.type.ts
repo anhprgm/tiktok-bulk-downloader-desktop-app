@@ -39,7 +39,6 @@ export interface IUserInfo {
   uid: string
   uniqueId: string
   secUid: string
-  awemeCount: number
   followerCount: number
   followingCount: number
   avatarUri: string
