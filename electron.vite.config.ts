@@ -11,9 +11,6 @@ export default defineConfig({
         '@shared': resolve('src/shared'),
         '@main': resolve('src/main')
       }
-    },
-    build: {
-      bytecode: true
     }
   },
   preload: {
@@ -21,9 +18,6 @@ export default defineConfig({
       alias: {
         '@shared': resolve('src/shared')
       }
-    },
-    build: {
-      bytecode: true
     }
   },
   renderer: {
