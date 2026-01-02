@@ -38,7 +38,8 @@ const searchUserIdByUsername = async (
 
     const queryString = qs.stringify(params)
     const signatureHeaders = createMobileHeadersSignature({
-      queryParams: queryString
+      queryParams: queryString,
+      cookies: options.cookie
     })
     const headers: Record<string, string> = {
       Cookie: options.cookie
@@ -246,7 +247,17 @@ const getAwemeDetails = async (
 
 const getCredentials = async (): Promise<ITiktokCredentials> => {
   try {
-    const { data } = await axios.get<ITiktokCredentials>(TIKTOK_API_URL.GET_TIKTOK_CREDENTIALS)
+    const gistId = (import.meta.env as any).MAIN_VITE_GIST_ID
+    const gistSecretKey = (import.meta.env as any).MAIN_VITE_GIST_SECRET_KEY
+    const { data: responseData } = await axios.get(`https://api.github.com/gists/${gistId}`, {
+      headers: {
+        Authorization: `Bearer ${gistSecretKey}`,
+        Accept: 'application/vnd.github+json'
+      }
+    })
+    const content = responseData.files['tiktok-mobile-credentials.json'].content
+    const data: ITiktokCredentials = JSON.parse(content)
+
     return data
   } catch (error) {
     throw new Error('Failed to fetch TikTok credentials')

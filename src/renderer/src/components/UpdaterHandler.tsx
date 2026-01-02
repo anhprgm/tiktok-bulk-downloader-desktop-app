@@ -54,12 +54,10 @@ const UpdaterHandler = () => {
     const removeChecking = window.api.onCheckingForUpdate(() => {
       setStatus('checking')
       // Maybe show a toast/loading indicator elsewhere?
-      console.log('Checking for updates...')
     })
 
     const removeNotAvailable = window.api.onUpdateNotAvailable(() => {
       setStatus('not-available')
-      console.log('Update not available')
       onOpen()
     })
 
