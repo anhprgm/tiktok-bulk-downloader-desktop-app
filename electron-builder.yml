@@ -38,6 +38,7 @@ mac:
     - dmg
 dmg:
   artifactName: ${name}-${version}.${ext}
+  icon: resources/icon.icns
 linux:
   target:
     - AppImage

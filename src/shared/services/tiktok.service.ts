@@ -202,19 +202,9 @@ const getAwemeDetails = async (
     const baseParams = getBaseMobileParams()
     const params = {
       ...baseParams,
-      aweme_id: awemeId,
+      aweme_ids: `[${awemeId}]`,
       origin_type: 'web',
-      request_source: '0',
-
-      // E-commerce related
-      ecom_version: '350900',
-      ecomAppVersion: '35.9.0',
-      ecom_version_code: '350900',
-      ecom_version_name: '35.9.0',
-      ecom_appid: '614896',
-      ecom_build_number: '1.0.10-alpha.67.2-bugfix',
-      ecom_commit_id: '4abc9b292',
-      ecom_aar_version: '1.0.10-alpha.67.2-bugfix'
+      request_source: '0'
     }
     const queryString = qs.stringify(params)
     const signatureHeaders = createMobileHeadersSignature({
@@ -223,6 +213,8 @@ const getAwemeDetails = async (
     })
     const headers: Record<string, string> = {
       'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent':
+        'com.zhiliaoapp.musically.go/420004 (Linux; U; Android 9; en_US; SM-G998B; Build/SP1A.210812.016;tt-ok/3.12.13.44.lite-ul)',
       'x-tt-ttnet-origin-host': 'api22-normal-c-alisg.tiktokv.com',
       Cookie: options.cookie
     }
@@ -239,7 +231,12 @@ const getAwemeDetails = async (
         })
       }
     })
-    return tiktokUtils.formatAwemeItemResponse(responseData.aweme_detail)
+    const awemeList = responseData.aweme_details || []
+    const awemeDetail = awemeList.find((item: any) => item.aweme_id === awemeId)
+    if (!awemeDetail) {
+      throw new Error()
+    }
+    return tiktokUtils.formatAwemeItemResponse(awemeDetail)
   } catch (error) {
     throw new Error('Failed to fetch aweme details')
   }

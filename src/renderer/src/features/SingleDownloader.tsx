@@ -5,22 +5,34 @@ import {
   SelectItem,
   Card,
   CardBody,
-  Image,
   Chip,
-  Tooltip
+  Tooltip,
+  Textarea,
+  ScrollShadow
 } from '@heroui/react'
-import { useState, useEffect } from 'react'
-import { FolderOpen, Download, Search } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { FolderOpen, Download, Check, AlertCircle, Loader2 } from 'lucide-react'
 import { IAwemeItem } from '@shared/types/tiktok.type'
 import { showErrorToast } from '@renderer/lib/toast'
 
+interface IDownloadItem {
+  id: string
+  originalUrl: string
+  status: 'pending' | 'downloading' | 'success' | 'error'
+  error?: string
+  data?: IAwemeItem
+}
+
 const SingleDownloader = () => {
-  const [postId, setPostId] = useState('')
+  const [inputUrls, setInputUrls] = useState('')
+  const [concurrency, setConcurrency] = useState('1')
   const [folderPath, setFolderPath] = useState('')
-  // Using Set for multi-select consistent with Bulk
   const [fileNameFormat, setFileNameFormat] = useState<Set<string>>(new Set(['ID']))
-  const [loading, setLoading] = useState(false)
-  const [downloadedItem, setDownloadedItem] = useState<IAwemeItem | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [downloadQueue, setDownloadQueue] = useState<IDownloadItem[]>([])
+
+  // Refs for processing loop
+  const isCancelledRef = useRef(false)
 
   useEffect(() => {
     window.api.getDefaultDownloadPath().then(({ data: path }) => {
@@ -55,91 +67,151 @@ const SingleDownloader = () => {
     return parts.length > 0 ? `${parts.join('_')}.${ext}` : `${item.id}.${ext}`
   }
 
-  const handleDownload = async () => {
-    if (!postId) return
-    setLoading(true)
-    setDownloadedItem(null)
-    try {
-      const cookieResponse = await window.api.getTiktokCredentials()
-      if (!cookieResponse.success || !cookieResponse.data) {
-        showErrorToast(cookieResponse.error)
-        setLoading(false)
-        return
-      }
-      const {
-        success,
-        data: item,
-        error
-      } = await window.api.getAwemeDetails(postId, {
-        cookie: cookieResponse.data.cookie
-      })
+  const startProcessing = async (items: IDownloadItem[]) => {
+    const maxConcurrency = Math.max(1, parseInt(concurrency) || 1)
+    const pool = new Set<Promise<void>>()
 
-      if (!success || !item) {
-        showErrorToast(error)
-        setLoading(false)
-        return
-      }
-
-      let targetFolder = folderPath
-      if (!targetFolder) {
-        targetFolder =
-          (await window.api.getDefaultDownloadPath().then(({ data: path }) => path)) || ''
-        if (!targetFolder) {
-          setLoading(false)
-          return
-        }
-        setFolderPath(targetFolder)
-      }
-
-      if (item.type === 'VIDEO' && item.video) {
-        await window.api.downloadFile({
-          url: item.video.mp4Uri,
-          fileName: getFilename(item, 0, 'mp4'),
-          folderPath: targetFolder
-        })
-      } else if (item.type === 'PHOTO' && item.imagesUri) {
-        // Create a folder for the photos
-        const baseName = getFilename(item, 0, 'jpg').replace('.jpg', '')
-        const photoFolderPath = `${targetFolder}/${baseName}`
-
-        for (let j = 0; j < item.imagesUri.length; j++) {
-          await window.api.downloadFile({
-            url: item.imagesUri[j],
-            fileName: `${j + 1}.jpg`,
-            folderPath: photoFolderPath
-          })
-        }
-      }
-
-      setDownloadedItem(item)
-    } catch (e) {
-    } finally {
-      setLoading(false)
+    const cookieResponse = await window.api.getTiktokCredentials()
+    if (!cookieResponse.success || !cookieResponse.data) {
+      showErrorToast('Can not get Tiktok credentials')
+      return
     }
+
+    for (const item of items) {
+      if (isCancelledRef.current) break
+
+      while (pool.size >= maxConcurrency) {
+        await Promise.race(pool)
+      }
+
+      if (isCancelledRef.current) break
+
+      const promise = (async () => {
+        try {
+          setDownloadQueue((prev) =>
+            prev.map((i) => (i.id === item.id ? { ...i, status: 'downloading' } : i))
+          )
+
+          // Logic
+
+          const detailRes = await window.api.getAwemeDetails(item.id, {
+            cookie: cookieResponse.data.cookie
+          })
+          if (!detailRes.success || !detailRes.data)
+            throw new Error(detailRes.error || 'Fetch Failed')
+
+          const dataItem = detailRes.data
+
+          // Download
+          let targetFolder = folderPath
+          // Ensure folder exists/is set
+          if (!targetFolder) {
+            targetFolder =
+              (await window.api.getDefaultDownloadPath().then(({ data: path }) => path)) || ''
+          }
+
+          if (dataItem.type === 'VIDEO' && dataItem.video) {
+            const { success } = await window.api.downloadFile({
+              url: dataItem.video.mp4Uri,
+              fileName: getFilename(dataItem, 0, 'mp4'),
+              folderPath: targetFolder
+            })
+            if (!success) throw new Error('Failed to download video')
+          } else if (dataItem.type === 'PHOTO' && dataItem.imagesUri) {
+            const baseName = getFilename(dataItem, 0, 'jpg').replace('.jpg', '')
+            const photoFolderPath = `${targetFolder}/${baseName}`
+            await Promise.all(
+              dataItem.imagesUri.map(async (u, k) => {
+                const { success } = await window.api.downloadFile({
+                  url: u,
+                  fileName: `${k + 1}.jpg`,
+                  folderPath: photoFolderPath
+                })
+                if (!success) throw new Error('Failed to download photo')
+              })
+            )
+          }
+
+          setDownloadQueue((prev) =>
+            prev.map((i) => (i.id === item.id ? { ...i, status: 'success', data: dataItem } : i))
+          )
+        } catch (e) {
+          setDownloadQueue((prev) =>
+            prev.map((i) =>
+              i.id === item.id ? { ...i, status: 'error', error: (e as Error).message } : i
+            )
+          )
+        }
+      })()
+
+      pool.add(promise)
+      promise.then(() => pool.delete(promise))
+    }
+
+    await Promise.all(pool)
+    setIsProcessing(false)
+  }
+
+  const onDownloadClick = async () => {
+    if (!folderPath) {
+      const { data: path } = await window.api.getDefaultDownloadPath()
+      if (path) setFolderPath(path)
+      else {
+        showErrorToast('Please select a download folder')
+        return
+      }
+    }
+
+    const regex = /(?:video|photo)\/(\d+)/
+    const lines = inputUrls.split(/[\n\s]+/).filter((l) => l.trim().length > 0)
+    const newItems: IDownloadItem[] = []
+    const seenIds = new Set()
+
+    lines.forEach((l) => {
+      const match = l.match(regex)
+      if (match && match[1]) {
+        if (!seenIds.has(match[1])) {
+          newItems.push({ id: match[1], originalUrl: l, status: 'pending' })
+          seenIds.add(match[1])
+        }
+      }
+    })
+
+    if (newItems.length === 0) {
+      showErrorToast('No valid URLs found')
+      return
+    }
+
+    setDownloadQueue(newItems)
+    setIsProcessing(true)
+    isCancelledRef.current = false
+
+    startProcessing(newItems)
   }
 
   return (
-    <div className="flex flex-col gap-6 max-w-2xl mx-auto mt-10 p-6 bg-content1 rounded-xl shadow-lg border border-divider">
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto mt-6 p-6 bg-content1 rounded-xl shadow-lg border border-divider">
       <div className="space-y-6">
         <div>
           <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-linear-to-r from-primary to-secondary">
-            Single Video Download
+            Multi-Link Downloader
           </h2>
-          <p className="text-default-500">Enter a video ID to download immediately.</p>
+          <p className="text-default-500">Enter multiple TikTok URLs to download them at once.</p>
         </div>
 
-        <Input
-          label="Tiktok Video ID"
-          placeholder="Enter video ID (e.g. 744900...)"
-          value={postId}
-          onValueChange={setPostId}
+        <Textarea
+          label="Tiktok URLs"
+          placeholder="Paste Tiktok links here (one per line or space separated)...&#10;https://www.tiktok.com/@user/video/75899...&#10;https://www.tiktok.com/@user/photo/75880..."
+          minRows={5}
+          maxRows={10}
+          value={inputUrls}
+          onValueChange={setInputUrls}
           variant="bordered"
-          size="lg"
-          startContent={<Search className="text-default-400" />}
+          isDisabled={isProcessing}
         />
 
         <div className="flex flex-col gap-4">
-          <div className="flex gap-4">
+          <div className="flex gap-4 items-end">
             <Tooltip delay={0} content={folderPath} placement="top" isDisabled={!folderPath}>
               <Input
                 label="Save Location"
@@ -156,12 +228,21 @@ const SingleDownloader = () => {
                 }
               />
             </Tooltip>
+
+            <Input
+              label="Concurrency"
+              type="number"
+              min={1}
+              value={concurrency}
+              onValueChange={setConcurrency}
+              className="w-32"
+              variant="bordered"
+              isDisabled={isProcessing}
+            />
           </div>
 
           <Select
-            classNames={{
-              label: 'mb-2'
-            }}
+            classNames={{ label: 'mb-2' }}
             label="Filename Format"
             selectionMode="multiple"
             selectedKeys={fileNameFormat}
@@ -187,39 +268,71 @@ const SingleDownloader = () => {
         </div>
 
         <Button
-          color="primary"
-          isLoading={loading}
-          onPress={handleDownload}
+          color={isProcessing ? 'danger' : 'primary'}
+          onPress={() => {
+            if (isProcessing) {
+              isCancelledRef.current = true
+              setIsProcessing(false) // Optimistic UI update
+            } else {
+              onDownloadClick()
+            }
+          }}
           className="w-full font-bold text-md"
           size="lg"
-          startContent={!loading && <Download />}
+          startContent={isProcessing ? <AlertCircle /> : <Download />}
         >
-          {loading ? 'Processing...' : 'Download Now'}
+          {isProcessing ? 'Stop Downloading' : 'Start Download'}
         </Button>
 
-        {downloadedItem && (
-          <Card className="mt-4 bg-success-50 dark:bg-success-900/20 border-success-200">
-            <CardBody className="flex flex-row gap-4 items-center">
-              <Image
-                src={downloadedItem.video?.coverUri || downloadedItem.imagesUri?.[0]}
-                width={80}
-                height={80}
-                className="rounded-lg object-cover"
-              />
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold">Download Complete!</span>
-                  <Chip size="sm" color="success" variant="flat">
-                    {downloadedItem.type}
-                  </Chip>
-                </div>
-                <span className="text-small text-default-500 line-clamp-1">
-                  {downloadedItem.description}
-                </span>
-                <span className="text-tiny text-default-400">ID: {downloadedItem.id}</span>
-              </div>
-            </CardBody>
-          </Card>
+        {/* Status Queue Section */}
+        {downloadQueue.length > 0 && (
+          <div className="flex flex-col gap-3 mt-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold text-default-600">
+                Download Queue ({downloadQueue.length})
+              </h3>
+              <span className="text-tiny text-default-400">
+                Success: {downloadQueue.filter((i) => i.status === 'success').length} | Failed:{' '}
+                {downloadQueue.filter((i) => i.status === 'error').length}
+              </span>
+            </div>
+
+            <ScrollShadow
+              className="h-75 w-full rounded-lg border border-divider p-2 gap-2 flex flex-col"
+              visibility="none"
+            >
+              {downloadQueue.map((item) => (
+                <Card
+                  key={item.id}
+                  className="w-full shadow-sm border border-default-100 flex-none"
+                >
+                  <CardBody className="flex flex-row items-center gap-3 p-3 overflow-hidden">
+                    <div className="min-w-20 font-mono text-small text-default-500">{item.id}</div>
+
+                    <div className="flex-1 min-w-0 flex flex-col">
+                      <div className="text-small truncate">
+                        {item.data?.description || item.originalUrl}
+                      </div>
+                      {item.status === 'error' && (
+                        <div className="text-tiny text-danger truncate">{item.error}</div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {item.status === 'pending' && (
+                        <div className="text-tiny text-default-400">Pending</div>
+                      )}
+                      {item.status === 'downloading' && (
+                        <Loader2 className="animate-spin text-primary" size={18} />
+                      )}
+                      {item.status === 'success' && <Check className="text-success" size={18} />}
+                      {item.status === 'error' && <AlertCircle className="text-danger" size={18} />}
+                    </div>
+                  </CardBody>
+                </Card>
+              ))}
+            </ScrollShadow>
+          </div>
         )}
       </div>
     </div>

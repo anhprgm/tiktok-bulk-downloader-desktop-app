@@ -24,7 +24,7 @@ const IPC_CHANNELS = {
 
 const TIKTOK_API_URL = {
   GET_USER_AWEME_LIST: 'https://aggr22-normal-alisg.tiktokv.com/lite/v2/public/item/list/',
-  GET_AWEME_DETAIL: 'https://aggr22-normal-alisg.tiktokv.com/aweme/v1/aweme/detail/',
+  GET_AWEME_DETAIL: 'https://aggr22-normal-alisg.tiktokv.com/tiktok/v1/videos/detail/',
   SEARCH_USER: 'https://search16-normal-c-alisg.tiktokv.com/aweme/v1/general/search/single/',
   GET_USER_INFO: 'https://api22-core-c-alisg.tiktokv.com/lite/v2/user/detail/other/',
   GET_TIKTOK_CREDENTIALS:

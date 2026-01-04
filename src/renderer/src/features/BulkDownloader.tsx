@@ -14,7 +14,8 @@ import {
   TableRow,
   TableCell,
   SortDescriptor,
-  Selection
+  Selection,
+  ScrollShadow
 } from '@heroui/react'
 import {
   SortingState,
@@ -30,7 +31,7 @@ import {
 } from '@tanstack/react-table'
 import { useState, useMemo, useRef, useCallback } from 'react'
 import { IAwemeItem, IUserInfo } from '@shared/types/tiktok.type'
-import { Search, Download, FolderOpen, StopCircle, ExternalLink } from 'lucide-react'
+import { Search, Download, FolderOpen, StopCircle, ExternalLink, AlertCircle } from 'lucide-react'
 import { showErrorToast } from '@renderer/lib/toast'
 
 const columnHelper = createColumnHelper<IAwemeItem>()
@@ -63,6 +64,7 @@ const BulkDownloader = () => {
     new Set(['Numerical order', 'ID'])
   )
   const [downloading, setDownloading] = useState(false)
+  const [failedItems, setFailedItems] = useState<{ item: IAwemeItem; error: string }[]>([])
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 })
 
   // Custom Filter Function
@@ -381,6 +383,7 @@ const BulkDownloader = () => {
     }
 
     setDownloading(true)
+    setFailedItems([])
     isCancelDownloadRef.current = false
     setDownloadProgress({ current: 0, total: selectedRows.length })
 
@@ -401,34 +404,44 @@ const BulkDownloader = () => {
 
         try {
           if (item.type === 'VIDEO' && item.video) {
-            await window.api.downloadFile({
+            const { success } = await window.api.downloadFile({
               url: item.video.mp4Uri,
               fileName: getFilename(item, globalIndex, 'mp4'),
               folderPath: userFolderPath
             })
+            if (!success) {
+              throw new Error('Failed to download video')
+            }
           } else if (item.type === 'PHOTO' && item.imagesUri) {
             const baseName = getFilename(item, globalIndex, 'jpg').replace('.jpg', '')
             const photoFolderPath = `${userFolderPath}/${baseName}`
 
             // Download photos for a single post concurrently
             await Promise.all(
-              item.imagesUri.map((imgUrl, j) =>
-                window.api.downloadFile({
+              item.imagesUri.map(async (imgUrl, j) => {
+                const { success } = await window.api.downloadFile({
                   url: imgUrl,
                   fileName: `${j + 1}.jpg`,
                   folderPath: photoFolderPath
                 })
-              )
+                if (!success) {
+                  throw new Error('Failed to download photo')
+                }
+              })
             )
           }
         } catch (e) {
-          console.error(`Failed to download ${item.id}`, e)
+          setFailedItems((prev) => [...prev, { item, error: (e as Error).message }])
         } finally {
           setDownloadProgress((prev) => ({ ...prev, current: prev.current + 1 }))
         }
       })
 
       await Promise.all(downloadPromises)
+    }
+
+    if (failedItems.length > 0) {
+      showErrorToast(`Completed with ${failedItems.length} errors.`)
     }
 
     setDownloading(false)
@@ -589,6 +602,36 @@ const BulkDownloader = () => {
             />
           </div>
         )}
+
+        {failedItems.length > 0 && (
+          <div className="w-full mt-2">
+            <div className="flex gap-2 items-center mb-1 text-danger">
+              <AlertCircle size={16} />
+              <span className="font-bold text-small">Failed Downloads ({failedItems.length})</span>
+            </div>
+            <ScrollShadow
+              className="h-30 w-full border border-danger-200 rounded-lg p-2 bg-danger-50 dark:bg-danger-900/20"
+              visibility="none"
+            >
+              <div className="flex flex-col gap-2">
+                {failedItems.map(({ item, error }, idx) => (
+                  <div
+                    key={`${item.id}-${idx}`}
+                    className="flex justify-between items-start text-tiny gap-2"
+                  >
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <span className="font-bold text-danger-600 dark:text-danger-400 font-mono">
+                        {item.id}
+                      </span>
+                      <span className="truncate text-default-500">{item.description}</span>
+                    </div>
+                    <span className="text-danger whitespace-nowrap ml-2">{error}</span>
+                  </div>
+                ))}
+              </div>
+            </ScrollShadow>
+          </div>
+        )}
       </div>
     )
   }, [
@@ -602,7 +645,8 @@ const BulkDownloader = () => {
     userInfo,
     posts.length,
     batchSize,
-    loading
+    loading,
+    failedItems
   ])
 
   const renderBottomContent = useCallback(() => {
